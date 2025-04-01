@@ -64,16 +64,22 @@ public class SecurityController {
         if (theActualUser != null
                 && theActualUser.getPassword().equals(theEncryptionService.convertSHA256(theNewUser.getPassword()))) {
 
+            // Generar un código de dos factores
             String twoFactorCode = theEncryptionService.generateValidationCode();
 
-            List<Session> theSessions = theSessionRepository.getSessionByUser(theActualUser.get_id());
-            theSessions.forEach(session -> session.setValidationCode(twoFactorCode));
-            theSessionRepository.saveAll(theSessions);
+            // Crear una nueva sesión
+            Session newSession = new Session();
+            newSession.setUser(theActualUser);
+            newSession.setValidationCode(twoFactorCode);
+            newSession.setExpirationDate(new Date(System.currentTimeMillis() + 3600000)); // 1 hora de expiración
+            this.theSessionRepository.save(newSession);
 
-            theActualUser.setPassword(""); // No devolver la contraseña
+            // No devolver la contraseña en la respuesta
+            theActualUser.setPassword("");
             theResponse.put("twoFactorCode", twoFactorCode);
             theResponse.put("user", theActualUser);
 
+            // Enviar el código de validación por correo
             try {
                 theRequestURL.twoFactorEmail(twoFactorCode, theActualUser.getEmail(), theActualUser.getName());
             } catch (Exception e) {
