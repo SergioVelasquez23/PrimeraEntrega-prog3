@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -91,29 +92,60 @@ public class SecurityController {
         HashMap<String, Object> theResponse = new HashMap<>();
         User theActualUser = this.theUserRepository.getUserByEmail(theNewUser.getEmail());
 
-        if (theActualUser != null
-                && theActualUser.getPassword().equals(theEncryptionService.convertSHA256(theNewUser.getPassword()))
-                && this.twoFactorValidation(theActualUser, twoFactorCode)) {
-
-            HashMap<String, Object> tokenResponse = theJwtService.generateToken(theActualUser);
-            String token = tokenResponse.get("token").toString();
-            Date expirationDate = (Date) tokenResponse.get("expiration");
-
-            List<Session> theSessions = theSessionRepository.getSessionByUser(theActualUser.get_id());
-            theSessions.forEach(session -> {
-                session.setValidationCode("");
-                session.setToken(token);
-                session.setExpirationDate(expirationDate);
-            });
-            theSessionRepository.saveAll(theSessions);
-
-            theActualUser.setPassword(""); // No devolver la contraseña
-            theResponse.put("user", theActualUser);
-            theResponse.put("token", token);
-            theResponse.put("expiration", expirationDate);
-        } else {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        // Depuración: Verificar si el usuario existe
+        if (theActualUser == null) {
+            System.out.println("Usuario no encontrado: " + theNewUser.getEmail());
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Usuario no encontrado");
+            return theResponse;
         }
+
+        // Depuración: Verificar si la contraseña coincide
+        String hashedPassword = theEncryptionService.convertSHA256(theNewUser.getPassword());
+        if (!theActualUser.getPassword().equals(hashedPassword)) {
+            System.out.println("Contraseña incorrecta para el usuario: " + theNewUser.getEmail());
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Contraseña incorrecta");
+            return theResponse;
+        }
+
+        // Depuración: Buscar sesiones asociadas al usuario
+        List<Session> theSessions = theSessionRepository.getSessionByUser(theActualUser.get_id());
+        System.out.println("Sesiones encontradas para el usuario: " + theSessions);
+
+        // Validar el código de dos factores
+        Session validSession = null;
+        for (Session session : theSessions) {
+            System.out.println("Validando sesión: " + session.get_id());
+            System.out.println("Código almacenado: " + session.getValidationCode());
+            System.out.println("Código proporcionado: " + twoFactorCode);
+            if (session.getValidationCode().equals(twoFactorCode)) {
+                validSession = session;
+                break;
+            }
+        }
+
+        if (validSession == null) {
+            System.out.println("Código de dos factores incorrecto para el usuario: " + theNewUser.getEmail());
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Código de dos factores incorrecto");
+            return theResponse;
+        }
+
+        // Generar el token JWT
+        HashMap<String, Object> tokenResponse = theJwtService.generateToken(theActualUser);
+        String token = tokenResponse.get("token").toString();
+        Date expirationDate = (Date) tokenResponse.get("expiration");
+
+        // Actualizar la sesión con el token
+        validSession.setValidationCode(""); // Limpiar el código de validación
+        validSession.setToken(token);
+        validSession.setExpirationDate(expirationDate);
+        this.theSessionRepository.save(validSession);
+
+        // No devolver la contraseña en la respuesta
+        theActualUser.setPassword("");
+        theResponse.put("user", theActualUser);
+        theResponse.put("token", token);
+        theResponse.put("expiration", expirationDate);
+
         return theResponse;
     }
 
@@ -151,5 +183,34 @@ public class SecurityController {
     @PostMapping("/permissions-validation")
     public boolean permissionsValidation(final HttpServletRequest request, @RequestBody Permission thePermission) {
         return this.theValidatorsService.validationRolePermission(request, thePermission.getUrl(), thePermission.getMethod());
+    }
+
+    // Endpoint: /{userId}/matchSession/{sessionId}
+    @PutMapping("/{userId}/matchSession/{sessionId}")
+    public String matchSession(@PathVariable String userId, @PathVariable String sessionId) {
+        User theActualUser = this.theUserRepository.findById(userId).orElse(null);
+        Session theActualSession = this.theSessionRepository.findById(sessionId).orElse(null);
+
+        if (theActualUser != null && theActualSession != null) {
+            theActualSession.setUser(theActualUser);
+            this.theSessionRepository.save(theActualSession);
+            return "Session matched to user successfully";
+        } else {
+            return "User or session not found";
+        }
+    }
+
+    // Endpoint: /{userId}/unmatchSession/{sessionId}
+    @PutMapping("/{userId}/unmatchSession/{sessionId}")
+    public String unmatchSession(@PathVariable String userId, @PathVariable String sessionId) {
+        Session theActualSession = this.theSessionRepository.findById(sessionId).orElse(null);
+
+        if (theActualSession != null && theActualSession.getUser() != null && theActualSession.getUser().get_id().equals(userId)) {
+            theActualSession.setUser(null);
+            this.theSessionRepository.save(theActualSession);
+            return "Session unmatched from user successfully";
+        } else {
+            return "User or session not found";
+        }
     }
 }

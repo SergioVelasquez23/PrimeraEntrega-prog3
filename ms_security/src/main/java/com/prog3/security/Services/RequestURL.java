@@ -1,6 +1,5 @@
 package com.prog3.security.Services;
 
-import com.google.gson.Gson;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -9,7 +8,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.springframework.stereotype.Service;
+
+import com.google.gson.Gson;
 
 @Service
 public class RequestURL {
@@ -36,7 +38,7 @@ public class RequestURL {
 
             // Crear la solicitud HTTP
             HttpRequest postRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("http://127.0.0.1:8080/send2fa")) // Asegúrate de usar el puerto correcto
+                    .uri(URI.create("http://ms-notification:8081/send2fa")) // Cambia "ms-notification" por el nombre del servicio en Docker
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
