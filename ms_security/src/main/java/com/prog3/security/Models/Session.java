@@ -21,11 +21,8 @@ public class Session {
     private String token;
     private Date expirationDate;
     private String validationCode;
-    private int timesErrorValidationCode;
-    @DBRef
-    private User user; // This is the user that is logged in
 
-    public Session() {
-    }
+    @DBRef
+    private User user;
 
 }

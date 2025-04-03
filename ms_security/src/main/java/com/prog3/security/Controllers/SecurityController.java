@@ -1,13 +1,19 @@
 package com.prog3.security.Controllers;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -15,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.google.gson.Gson;
 import com.prog3.security.Models.Permission;
 import com.prog3.security.Models.Session;
 import com.prog3.security.Models.User;
@@ -55,6 +62,8 @@ public class SecurityController {
             .followRedirects(HttpClient.Redirect.NEVER) // No seguir redirecciones
             .build();
 
+    private final Gson gson = new Gson();
+
     // Endpoint: /login
     @PostMapping("/login")
     public HashMap<String, Object> login(@RequestBody User theNewUser, final HttpServletResponse response) throws IOException {
@@ -64,7 +73,7 @@ public class SecurityController {
         if (theActualUser != null
                 && theActualUser.getPassword().equals(theEncryptionService.convertSHA256(theNewUser.getPassword()))) {
 
-            // Generar un código de dos factores
+            // Generar un único código de dos factores
             String twoFactorCode = theEncryptionService.generateValidationCode();
 
             // Crear una nueva sesión
@@ -74,21 +83,56 @@ public class SecurityController {
             newSession.setExpirationDate(new Date(System.currentTimeMillis() + 3600000)); // 1 hora de expiración
             this.theSessionRepository.save(newSession);
 
+            // Enviar el código de dos factores por correo electrónico
+            twoFactorEmail(twoFactorCode, theActualUser.getEmail(), theActualUser.getName());
+
             // No devolver la contraseña en la respuesta
             theActualUser.setPassword("");
-            theResponse.put("twoFactorCode", twoFactorCode);
+            theActualUser.setNumeroDeSesiones(0);
+            theResponse.put("twoFactorCode", twoFactorCode); // Este es el mismo código que se envió al correo
             theResponse.put("user", theActualUser);
-
-            // Enviar el código de validación por correo
-            try {
-                theRequestURL.twoFactorEmail(twoFactorCode, theActualUser.getEmail(), theActualUser.getName());
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
         } else {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
         return theResponse;
+    }
+
+    // Método para enviar el código de dos factores por correo electrónico
+    public void twoFactorEmail(String twoFactorCode, String email, String name) {
+        try {
+            Map<String, Object> bodyMap = new HashMap<>();
+            Map<String, String> recipient = new HashMap<>();
+            recipient.put("name", name);
+            recipient.put("email", email);
+
+            List<Map<String, String>> recipients = new ArrayList<>();
+            recipients.add(recipient);
+
+            bodyMap.put("recipients", recipients);
+            bodyMap.put("code", twoFactorCode); // Incluye el código generado
+            bodyMap.put("subject", "Tu código de autenticación de dos factores");
+            bodyMap.put("content", "<h1>Código de autenticación</h1><p>Tu código de autenticación es: <strong>" + twoFactorCode + "</strong></p>");
+
+            String body = gson.toJson(bodyMap);
+
+            HttpRequest postRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://localhost:8081/send2fa"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<String> response = client.send(postRequest, HttpResponse.BodyHandlers.ofString());
+
+            System.out.println("Response code: " + response.statusCode());
+            System.out.println("Response body: " + response.body());
+
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Error al enviar el correo: " + response.body());
+            }
+        } catch (Exception e) {
+            System.out.println("Error al enviar el correo electrónico:");
+            e.printStackTrace();
+        }
     }
 
     // Endpoint: /login/validate/{twoFactorCode}
@@ -123,6 +167,7 @@ public class SecurityController {
             System.out.println("Validando sesión: " + session.get_id());
             System.out.println("Código almacenado: " + session.getValidationCode());
             System.out.println("Código proporcionado: " + twoFactorCode);
+
             if (session.getValidationCode().equals(twoFactorCode)) {
                 validSession = session;
                 break;
@@ -145,6 +190,10 @@ public class SecurityController {
         validSession.setToken(token);
         validSession.setExpirationDate(expirationDate);
         this.theSessionRepository.save(validSession);
+
+        // Incrementar el contador de sesiones del usuario
+        theActualUser.setNumeroDeSesiones(theActualUser.getNumeroDeSesiones() + 1);
+        this.theUserRepository.save(theActualUser); // Guardar los cambios en el usuario
 
         // No devolver la contraseña en la respuesta
         theActualUser.setPassword("");
@@ -173,18 +222,17 @@ public class SecurityController {
         }
         return theResponse;
     }
-
     // Método auxiliar: Validación de dos factores
-    private boolean twoFactorValidation(User theActualUser, String twoFactorCode) {
-        List<Session> theSessions = theSessionRepository.getSessionByUser(theActualUser.get_id());
-        for (Session session : theSessions) {
-            if (session.getValidationCode().equals(twoFactorCode)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
+    // private boolean twoFactorValidation(User theActualUser, String twoFactorCode) {
+    //     List<Session> theSessions = theSessionRepository.getSessionByUser(theActualUser.get_id());
+    //     for (Session session : theSessions) {
+    //         if (session.getValidationCode().equals(twoFactorCode)) {
+    //             return true;
+    //         }
+    //     }
+    //     return false;
+    // }
     // Endpoint: /permissions-validation
     @PostMapping("/permissions-validation")
     public boolean permissionsValidation(final HttpServletRequest request, @RequestBody Permission thePermission) {
@@ -217,6 +265,18 @@ public class SecurityController {
             return "Session unmatched from user successfully";
         } else {
             return "User or session not found";
+        }
+    }
+
+    // Endpoint: /user/{userId}/numeroDeSesiones
+    @GetMapping("/user/{userId}/numeroDeSesiones")
+    public int getNumeroDeSesiones(@PathVariable String userId) {
+        User theActualUser = this.theUserRepository.findById(userId).orElse(null);
+
+        if (theActualUser != null) {
+            return theActualUser.getNumeroDeSesiones();
+        } else {
+            throw new RuntimeException("Usuario no encontrado");
         }
     }
 }

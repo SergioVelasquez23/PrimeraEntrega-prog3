@@ -61,4 +61,5 @@ public class UsersControllers {
     public void delete(@PathVariable String id) {
         this.theUserRepository.findById(id).ifPresent(theUser -> this.theUserRepository.delete(theUser));
     }
+
 }

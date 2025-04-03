@@ -11,4 +11,7 @@ public interface SessionRepository extends MongoRepository<Session, String> {
 
     @Query("{'user.$id': ObjectId(?0)}")
     public List<Session> getSessionByUser(String userId);
+
+    // @Query(value = "{'user.$id': ObjectId(?0)}", fields = "{'timesErrorValidationCode': 1}")
+    // List<Session> findSessionsByUser(String userId);
 }

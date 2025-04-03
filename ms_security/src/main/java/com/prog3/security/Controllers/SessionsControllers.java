@@ -1,7 +1,6 @@
 package com.prog3.security.Controllers;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -89,13 +88,4 @@ public class SessionsControllers {
         return this.theSessionRepository.getSessionByUser(userId);
     }
 
-    @GetMapping("/timesErrorValidationCode/{userId}")
-    public int getTimesErrorValidationCode(@PathVariable String userId) {
-        AtomicInteger timesError = new AtomicInteger();
-        List<Session> theSessions = theSessionRepository.getSessionByUser(userId);
-        theSessions.forEach(session -> {
-            timesError.set(session.getTimesErrorValidationCode());
-        });
-        return timesError.get();
-    }
 }

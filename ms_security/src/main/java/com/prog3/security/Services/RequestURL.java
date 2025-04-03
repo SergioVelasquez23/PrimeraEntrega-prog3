@@ -16,12 +16,11 @@ import com.google.gson.Gson;
 @Service
 public class RequestURL {
 
-    Gson gson = new Gson();
-    HttpClient client = HttpClient.newHttpClient();
+    private final Gson gson = new Gson();
+    private final HttpClient client = HttpClient.newHttpClient();
 
-    public void twoFactorEmail(String twoFactorCode, String email, String name) {
+    public String twoFactorEmail(String email, String name) {
         try {
-            // Crear el cuerpo de la solicitud
             Map<String, Object> bodyMap = new HashMap<>();
             Map<String, String> recipient = new HashMap<>();
             recipient.put("name", name);
@@ -31,30 +30,28 @@ public class RequestURL {
             recipients.add(recipient);
 
             bodyMap.put("recipients", recipients);
-            bodyMap.put("subject", "Tu código de autenticación de dos factores");
-            bodyMap.put("content", "<h1>Código de autenticación</h1><p>Tu código de autenticación es: <strong>" + twoFactorCode + "</strong></p>");
 
             String body = gson.toJson(bodyMap);
 
-            // Crear la solicitud HTTP
             HttpRequest postRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("http://ms-notification:8081/send2fa")) // Cambia "ms-notification" por el nombre del servicio en Docker
+                    .uri(URI.create("http://localhost:8081/send2fa"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
-            // Enviar la solicitud y manejar la respuesta
             HttpResponse<String> response = client.send(postRequest, HttpResponse.BodyHandlers.ofString());
 
-            // Imprimir la respuesta para depuración
-            System.out.println("Response code: " + response.statusCode());
-            System.out.println("Response body: " + response.body());
-
-            if (response.statusCode() != 200) {
+            if (response.statusCode() == 200) {
+                // Extraer el código de la respuesta
+                Map<String, Object> responseBody = gson.fromJson(response.body(), Map.class);
+                return responseBody.get("code").toString();
+            } else {
                 throw new RuntimeException("Error al enviar el correo: " + response.body());
             }
         } catch (Exception e) {
+            System.out.println("Error al enviar el correo electrónico:");
             e.printStackTrace();
+            throw new RuntimeException("Error al enviar el correo");
         }
     }
 }
